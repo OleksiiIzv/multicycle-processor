@@ -1,0 +1,70 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+entity memory_interface is
+    port (
+        -- === Глобальні сигнали ===
+        CLK : in  std_logic;
+        RST : in  std_logic;
+
+        -- === Входи від "мозку" (Control Unit) ===
+        CTL_Smar : in  std_logic; -- '1' = Записати адресу в MAR
+        CTL_Smbr : in  std_logic; -- '1' = Записати дані в MBR для запису
+        CTL_WR   : in  std_logic; -- '1' = Активувати сигнал запису в пам'ять (Write)
+        CTL_RD   : in  std_logic; -- '1' = Активувати сигнал читання з пам'яті (Read)
+
+        -- === Шини даних від/до Datapath ===
+        DP_ADR_IN  : in  signed(31 downto 0); -- Адреса з PC/ALU
+        DP_DATA_OUT: in  signed(15 downto 0); -- Дані з регістрів для запису
+        DP_DATA_IN : out signed(15 downto 0); -- Дані, що йдуть в регістри після читання
+
+        -- === Шини до зовнішньої пам'яті ===
+        MEM_ADDR     : out signed(31 downto 0);
+        MEM_DATA     : inout signed(15 downto 0);
+        MEM_WR_OUT   : out std_logic;
+        MEM_RD_OUT   : out std_logic
+    );
+end entity;
+
+architecture rtl of memory_interface is
+    -- Внутрішні регістри: MAR (адреса) та MBR (дані)
+    signal MAR : signed(31 downto 0) := (others => '0');
+    signal MBR : signed(15 downto 0) := (others => '0');
+begin
+
+    -- 1. СИНХРОННИЙ ПРОЦЕС: відповідає за ЗАПИС у внутрішні регістри MAR та MBR
+    sync_process: process(CLK, RST)
+    begin
+        if RST = '1' then
+            MAR <= (others => '0');
+            MBR <= (others => '0');
+        elsif rising_edge(CLK) then
+            -- Захоплення адреси в MAR
+            if CTL_Smar = '1' then
+                MAR <= DP_ADR_IN;
+            end if;
+
+            -- Захоплення даних для запису в MBR
+            if CTL_Smbr = '1' then
+                MBR <= DP_DATA_OUT;
+            end if;
+        end if;
+    end process;
+
+    -- 2. КОМБІНАЦІЙНА ЛОГІКА: відповідає за керування зовнішніми шинами
+
+    -- Адреса на шині пам'яті ЗАВЖДИ дорівнює значенню в MAR
+    MEM_ADDR <= MAR;
+    
+    -- Вихідні сигнали керування просто "прокидаються" назовні
+    MEM_WR_OUT <= CTL_WR;
+    MEM_RD_OUT <= CTL_RD;
+
+    -- Керування двонаправленою шиною даних MEM_DATA
+    MEM_DATA <= MBR when CTL_WR = '1' else (others => 'Z');
+
+    -- Дані, що повертаються в Datapath, беруться з шини MEM_DATA під час читання
+    DP_DATA_IN <= MEM_DATA when CTL_RD = '1' else (others => 'X');
+
+end rtl;
